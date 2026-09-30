@@ -1,0 +1,41 @@
+#include <windows.h>
+#include "resource.h"
+#include "version.h"
+
+/* --- application icon ------------------------------------------------- */
+IDI_WNIP ICON "res/wnip.ico"
+
+/* --- application manifest -------------------------------------------- */
+/* The manifest is embedded through src/wnip_manifest.rc, which the build
+ * installs as "default-manifest.o" so that it replaces the toolchain's own
+ * stub instead of colliding with it.  See that file for the details. */
+
+/* --- version information --------------------------------------------- */
+VS_VERSION_INFO VERSIONINFO
+    FILEVERSION     WNIP_VERSION_MAJOR,WNIP_VERSION_MINOR,WNIP_VERSION_PATCH,0
+    PRODUCTVERSION  WNIP_VERSION_MAJOR,WNIP_VERSION_MINOR,WNIP_VERSION_PATCH,0
+    FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+    FILEFLAGS       0
+    FILEOS          VOS_NT_WINDOWS32
+    FILETYPE        VFT_APP
+    FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "wnip"
+            VALUE "FileDescription",  "wnip - screenshot & annotation"
+            VALUE "FileVersion",      WNIP_VERSION_A4
+            VALUE "InternalName",     "wnip"
+            VALUE "LegalCopyright",   "MIT licensed"
+            VALUE "OriginalFilename", "wnip.exe"
+            VALUE "ProductName",      "wnip"
+            VALUE "ProductVersion",   WNIP_VERSION_A
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

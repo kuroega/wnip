@@ -1,0 +1,13 @@
+/* wnip_manifest.rc - the application manifest, compiled on its own.
+ *
+ * GCC on MinGW-w64 automatically links a file named "default-manifest.o"
+ * when it exists on the start-file search path.  Linking a manifest from
+ * wnip.rc as well makes the linker merge two manifests and emit
+ * ".rsrc merge failure: multiple non-default manifests" (and, worse, embed
+ * both).  Building our manifest as default-manifest.o and putting its
+ * directory on the search path with -B replaces the toolchain stub, so the
+ * executable ends up with exactly one manifest - ours.
+ */
+#include <windows.h>
+
+1 RT_MANIFEST "res/wnip.manifest"
