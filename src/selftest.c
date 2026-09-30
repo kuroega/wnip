@@ -280,6 +280,76 @@ static void step_overlay_repaint(void)
     pump(250);
 }
 
+/* A real window underneath the overlay must be suggested, not the overlay
+ * itself. Check painted feedback and the dimensions of the snapped copy. */
+static void step_window_snap(void)
+{
+    int snap = g_cfg.snap_to_windows;
+    int remember = g_cfg.remember_last_region;
+    g_cfg.remember_last_region = 0;
+    RECT vr = virtual_screen_rect();
+    HWND target = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"STATIC",
+        L"Snap regression target", WS_POPUP | WS_VISIBLE,
+        vr.left + 100, vr.top + 160, 420, 280, NULL, NULL, g_hinst, NULL);
+    result(target != NULL, L"snap: target window opens");
+    if (!target) goto restore;
+    pump(100);
+    RECT frame;
+    capture_window_frame(target, &frame);
+    POINT screen = { frame.left + 100, frame.top + 100 };
+    for (int enabled = 0; enabled <= 1; enabled++) {
+        g_cfg.snap_to_windows = enabled;
+        bool started = overlay_begin(CAP_REGION);
+        result(started, L"snap: region overlay opens");
+        if (!started) continue;
+        HWND ov = find(WNIP_CLASS_OVERLAY);
+        POINT pt = screen;
+        ScreenToClient(ov, &pt);
+        SendMessageW(ov, WM_MOUSEMOVE, 0, MAKELPARAM(pt.x, pt.y));
+        UpdateWindow(ov);
+        result(capture_window_at(screen, false) == target,
+               L"snap: picker sees through the overlay");
+        POINT edge = { frame.left + 20, frame.bottom - 1 };
+        ScreenToClient(ov, &edge);
+        HDC dc = GetDC(ov);
+        COLORREF color = GetPixel(dc, edge.x, edge.y);
+        ReleaseDC(ov, dc);
+        result(enabled ? color == RGB(45, 127, 249) : color != RGB(45, 127, 249),
+               enabled ? L"snap: hover paints exact frame" : L"snap: disabled setting hides suggestion");
+        if (enabled) {
+            send_click_drag(ov, pt.x, pt.y, pt.x, pt.y);
+            /* A second press inside the selection arms double-click Copy. */
+            send_click_drag(ov, pt.x, pt.y, pt.x, pt.y);
+            SendMessageW(ov, WM_LBUTTONDBLCLK, MK_LBUTTON, MAKELPARAM(pt.x, pt.y));
+            pump(100);
+            WnImage *copied = clipboard_get_image(g_hwndMain);
+            result(!overlay_active() && copied && copied->w == rect_w(&frame) &&
+                   copied->h == rect_h(&frame), L"snap: click selects exact window dimensions");
+            img_free(copied);
+            overlay_dismiss();
+            if (overlay_begin(CAP_REGION)) {
+                ov = find(WNIP_CLASS_OVERLAY);
+                send_click_drag(ov, pt.x, pt.y, pt.x + 80, pt.y + 60);
+                send_click_drag(ov, pt.x + 40, pt.y + 30, pt.x + 40, pt.y + 30);
+                SendMessageW(ov, WM_LBUTTONDBLCLK, MK_LBUTTON,
+                             MAKELPARAM(pt.x + 40, pt.y + 30));
+                copied = clipboard_get_image(g_hwndMain);
+                result(!overlay_active() && copied && copied->w == 80 && copied->h == 60,
+                       L"snap: dragging still selects a freeform region");
+                img_free(copied);
+            } else {
+                result(false, L"snap: freeform overlay opens");
+            }
+        }
+        overlay_dismiss();
+        pump(100);
+    }
+    DestroyWindow(target);
+restore:
+    g_cfg.snap_to_windows = snap;
+    g_cfg.remember_last_region = remember;
+}
+
 static void step_overlays(void)
 {
     struct { CaptureMode mode; const wchar_t *name; } modes[] = {
@@ -946,6 +1016,7 @@ static void run_battery(WnConfig *backup, ResUse *mark)
     STEP(step_tray());
     STEP(step_settings(backup));
     STEP(step_overlays());
+    STEP(step_window_snap());
     STEP(step_overlay_repaint());
     STEP(step_color_picker());
     STEP(step_clipboard_path());

@@ -50,7 +50,7 @@ set / 0.00 % CPU**, and does all capture, annotation and text recognition
 
 | Mode | Notes |
 | --- | --- |
-| Region | Drag a rectangle; snap-to-window, magnifier, pixel + physical size readout, remembered region. |
+| Region | Hover to preview the exact window frame and a “Click to snap” hint; click to select that frame or drag a rectangle. Magnifier, pixel + physical size readout, remembered region. |
 | Window | Click a window; `Shift`+click adds more and captures them together as one image, each with a synthesised drop shadow. |
 | Scrolling | Stitches a long screenshot from a scrolling area, horizontally or vertically. |
 | Screen | The monitor under the pointer, or the whole virtual desktop. |
@@ -58,6 +58,8 @@ set / 0.00 % CPU**, and does all capture, annotation and text recognition
 | Delay | Optional 0–10 s delay before a region capture. |
 | Colour picker | Click any pixel; `#RRGGBB` (and the RGB triple) is copied to the clipboard. |
 | Copy a selection fast | **Double-click inside the selection** — identical to pressing the overlay's Copy button. |
+
+Window hover suggestions in region capture are controlled by **Settings → Capture → Snap to windows** (on by default). A click selects the visible window frame, excluding invisible resize borders; use the toolbar or Enter to capture it. Dragging always makes a freeform selection instead. Suggestions appear only before a selection is made.
 
 The overlay **freezes the desktop** first, so nothing moves while you select,
 the magnifier is exact, and the resulting image never contains the overlay

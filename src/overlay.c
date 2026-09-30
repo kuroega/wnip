@@ -605,6 +605,42 @@ static void ov_draw_magnifier(HDC dc, Overlay *o, POINT client)
     SelectObject(dc, oldf);
 }
 
+static bool ov_snap_enabled(const Overlay *o)
+{
+    return o->mode == CAP_WINDOW || (o->mode == CAP_REGION && g_cfg.snap_to_windows);
+}
+
+static RECT ov_hover_label(const Overlay *o)
+{
+    RECT r = o->hover_rect;
+    if (r.left < o->vrect.left) r.left = o->vrect.left;
+    if (r.top < o->vrect.top) r.top = o->vrect.top;
+    r.top += ov_scale(o, 4);
+    r.right = r.left + ov_scale(o, 520);
+    if (r.right > o->vrect.right) r.right = o->vrect.right;
+    r.bottom = r.top + ov_scale(o, 26);
+    if (r.bottom > o->vrect.bottom) r.bottom = o->vrect.bottom;
+    return r;
+}
+
+/* Only damage the frame strips and label, not the window's whole interior. */
+static void ov_invalidate_hover(Overlay *o)
+{
+    RECT r = o->hover_rect;
+    if (!rect_has_area(&r))
+        return;
+    RECT strips[] = {
+        { r.left, r.top, r.right, r.top + 2 },
+        { r.left, r.bottom - 2, r.right, r.bottom },
+        { r.left, r.top, r.left + 2, r.bottom },
+        { r.right - 2, r.top, r.right, r.bottom }
+    };
+    for (int i = 0; i < 4; i++)
+        ov_invalidate_rect(o, &strips[i]);
+    RECT label = ov_hover_label(o);
+    ov_invalidate_rect(o, &label);
+}
+
 static void ov_paint(Overlay *o, HDC dc)
 {
     RECT cr = ov_client_rect(o);
@@ -642,7 +678,7 @@ static void ov_paint(Overlay *o, HDC dc)
             DeleteObject(b);
         }
     }
-    if (o->mode == CAP_WINDOW && o->hover && !o->has_sel && o->multi_count == 0) {
+    if (ov_snap_enabled(o) && o->hover && !o->has_sel && !o->selecting && o->multi_count == 0) {
         RECT hr = o->hover_rect;
         rect_move(&hr, -o->vrect.left, -o->vrect.top);
         HBRUSH b = CreateSolidBrush(RGB(45, 127, 249));
@@ -652,14 +688,24 @@ static void ov_paint(Overlay *o, HDC dc)
         HBRUSH w = CreateSolidBrush(RGB(255, 255, 255));
         FrameRect(dc, &hr2, w);
         DeleteObject(w);
-        wchar_t label[160];
+        wchar_t label[200];
         wchar_t title[128] = L"";
         GetWindowTextW(o->hover, title, 128);
-        swprintf(label, 160, L"%ls  %d × %d", title, rect_w(&o->hover_rect), rect_h(&o->hover_rect));
-        int y = hr.top - ov_scale(o, 26);
-        if (y < 0) y = hr.top + ov_scale(o, 4);
-        ov_draw_chip(dc, o, hr.left, y, label, RGB(20, 22, 28), RGB(255, 255, 255),
-                     ov_font(o, false));
+        swprintf(label, 200, L"Click to %ls · %ls · %d × %d",
+                 o->mode == CAP_REGION ? L"snap" : L"capture", title,
+                 rect_w(&o->hover_rect), rect_h(&o->hover_rect));
+        RECT lr = ov_hover_label(o);
+        rect_move(&lr, -o->vrect.left, -o->vrect.top);
+        HBRUSH lb = CreateSolidBrush(RGB(20, 22, 28));
+        FillRect(dc, &lr, lb);
+        DeleteObject(lb);
+        lr.left += ov_scale(o, 6);
+        lr.right -= ov_scale(o, 6);
+        HGDIOBJ lf = SelectObject(dc, ov_font(o, false));
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(255, 255, 255));
+        DrawTextW(dc, label, -1, &lr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        SelectObject(dc, lf);
     }
 
     /* 4. selection frame */
@@ -744,7 +790,9 @@ static void ov_paint(Overlay *o, HDC dc)
             hint = L"Click a pixel to copy its colour  ·  Esc to cancel";
             break;
         default:
-            hint = L"Drag to select  ·  Double-click inside to copy  ·  Enter to confirm  ·  Ctrl+A select all  ·  Esc to cancel";
+            hint = o->mode == CAP_REGION && g_cfg.snap_to_windows
+                ? L"Hover a window, click to snap  ·  Drag to select  ·  Double-click inside to copy  ·  Enter to confirm  ·  Esc to cancel"
+                : L"Drag to select  ·  Double-click inside to copy  ·  Enter to confirm  ·  Ctrl+A select all  ·  Esc to cancel";
             break;
         }
         HGDIOBJ oldf = SelectObject(dc, ov_font(o, false));
@@ -781,18 +829,15 @@ static void ov_paint(Overlay *o, HDC dc)
 static void ov_update_hover(Overlay *o, POINT screen_pt)
 {
     HWND hw = capture_window_at(screen_pt, false);
-    if (hw == o->hover)
+    RECT fr = { 0, 0, 0, 0 };
+    if (hw && capture_window_frame(hw, &fr))
+        fr = rect_intersect(&fr, &o->vrect);
+    if (hw == o->hover && rect_eq(&fr, &o->hover_rect))
         return;
-    if (o->hover && rect_has_area(&o->hover_rect))
-        ov_invalidate_rect(o, &o->hover_rect);
+    ov_invalidate_hover(o);
     o->hover = hw;
-    ZeroMemory(&o->hover_rect, sizeof o->hover_rect);
-    if (hw) {
-        RECT fr;
-        if (capture_window_frame(hw, &fr))
-            o->hover_rect = rect_intersect(&fr, &o->vrect);
-        ov_invalidate_rect(o, &o->hover_rect);
-    }
+    o->hover_rect = fr;
+    ov_invalidate_hover(o);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1076,7 +1121,7 @@ static LRESULT CALLBACK ov_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             ov_invalidate_selection(o, &o->sel);
             tb_position(o);
         } else {
-            if (o->mode == CAP_WINDOW)
+            if (ov_snap_enabled(o) && !o->has_sel)
                 ov_update_hover(o, spt);
             ov_invalidate_cursor(o, pt);
         }
@@ -1105,6 +1150,8 @@ static LRESULT CALLBACK ov_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             return 0;
         }
 
+        /* The suggestion disappears once the user starts a freeform drag. */
+        ov_invalidate_hover(o);
         /* the crosshair and magnifier disappear once the drag starts */
         ov_erase_cursor(o);
 
@@ -1160,7 +1207,7 @@ static LRESULT CALLBACK ov_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                             return 0;
                         }
                     }
-                } else if (g_cfg.snap_to_windows) {
+                } else if (o->mode == CAP_REGION && g_cfg.snap_to_windows) {
                     HWND hw = capture_window_at(spt, false);
                     if (hw) {
                         RECT fr;
@@ -1436,6 +1483,11 @@ bool overlay_begin(CaptureMode mode)
     SetCapture(hwnd);
     ReleaseCapture();
     tb_position(o);
+    if (ov_snap_enabled(o) && !o->has_sel) {
+        POINT cursor;
+        GetCursorPos(&cursor);
+        ov_update_hover(o, cursor);
+    }
     InvalidateRect(hwnd, NULL, TRUE);
     return true;
 }

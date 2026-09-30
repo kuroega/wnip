@@ -3,6 +3,7 @@
 #include "util.h"
 #include "image.h"
 #include "capture.h"
+#include <dwmapi.h>
 
 void capture_draw_cursor(WnImage *im, int origin_x, int origin_y)
 {
@@ -135,27 +136,42 @@ WnImage *capture_window(HWND hwnd, bool with_shadow, bool include_cursor)
     return out ? out : NULL;
 }
 
+typedef struct WindowPick {
+    POINT pt;
+    bool allow_shell;
+    HWND found;
+} WindowPick;
+
+static BOOL CALLBACK pick_window(HWND hwnd, LPARAM lp)
+{
+    WindowPick *pick = (WindowPick *)lp;
+    if (hwnd == g_hwndMain || !IsWindowVisible(hwnd) || IsIconic(hwnd))
+        return TRUE;
+    wchar_t cls[64] = L"";
+    GetClassNameW(hwnd, cls, 64);
+    /* The capture overlay covers the desktop: never pick our own UI. */
+    if (str_ieq_w(cls, WNIP_CLASS_OVERLAY))
+        return TRUE;
+    DWORD cloaked = 0;
+    if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof cloaked)) && cloaked)
+        return TRUE;
+    RECT frame;
+    if (!capture_window_frame(hwnd, &frame) || !PtInRect(&frame, pick->pt))
+        return TRUE;
+    if (!pick->allow_shell &&
+        (str_ieq_w(cls, L"Shell_TrayWnd") || str_ieq_w(cls, L"Shell_SecondaryTrayWnd") ||
+         str_ieq_w(cls, L"Progman") || str_ieq_w(cls, L"WorkerW") ||
+         str_ieq_w(cls, L"Windows.UI.Core.CoreWindow")))
+        return FALSE;
+    pick->found = hwnd;
+    return FALSE;
+}
+
 HWND capture_window_at(POINT pt, bool allow_shell)
 {
-    HWND hwnd = WindowFromPoint(pt);
-    if (!hwnd)
-        return NULL;
-
-    /* Walk up to the top-level window. */
-    HWND root = GetAncestor(hwnd, GA_ROOT);
-    if (root)
-        hwnd = root;
-
-    if (!allow_shell) {
-        wchar_t cls[64] = L"";
-        GetClassNameW(hwnd, cls, 64);
-        if (str_ieq_w(cls, L"Shell_TrayWnd") || str_ieq_w(cls, L"Shell_SecondaryTrayWnd") ||
-            str_ieq_w(cls, L"Progman") || str_ieq_w(cls, L"WorkerW") ||
-            str_ieq_w(cls, L"Windows.UI.Core.CoreWindow"))
-            return NULL;
-    }
-
-    if (hwnd == g_hwndMain)
-        return NULL;
-    return hwnd;
+    /* EnumWindows visits top-level windows in Z order, looking underneath
+     * the overlay without hiding it or flashing the live desktop. */
+    WindowPick pick = { pt, allow_shell, NULL };
+    EnumWindows(pick_window, (LPARAM)&pick);
+    return pick.found;
 }
