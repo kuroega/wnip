@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Draw an original Heian-inspired folding-fan icon, using only Python's stdlib.
 
-The hiogi-style fan, vermilion sun, cloud strokes and indigo/gold palette are
+The hiogi-style fan, vermilion sun, cloud strokes and washi/gold palette are
 original vector-like geometry, not traced or copied from historical artwork.
 """
 import math
@@ -20,7 +20,7 @@ FAN_INNER = [(.50, .79), (.19, .45), (.23, .39), (.30, .34), (.38, .29),
 RIB_TIPS = [(.17, .38), (.25, .32), (.35, .26), (.50, .23),
             (.65, .26), (.75, .32), (.83, .38)]
 
-INDIGO = (20, 36, 67)
+INDIGO = (20, 36, 67)  # kept for reference; background is now light washi
 GOLD = (228, 181, 95)
 VERMILION = (181, 62, 48)
 PARCHMENT = (249, 227, 177)
@@ -69,11 +69,13 @@ def render(size):
                 row.append((0, 0, 0, 0))
                 continue
 
-            # Deep indigo lacquer with a restrained gold keyline.
-            shade = .8 + .2 * (1 - y)
-            color = tuple(int(v * shade) for v in INDIGO)
+            # Light washi-paper ground (wagami style) with a warm,
+            # hand-made paper tone and a restrained gold keyline.
+            shade = 1.0 + 0.035 * (1 - y)
+            paper = (243, 236, 219)
+            color = tuple(min(255, int(v * shade)) for v in paper)
             if -.024 < edge < -.011:
-                color = GOLD
+                color = (196, 152, 84)
             elif edge <= -.024 and y < .35:
                 # A small gold cloud above the fan, visible in large icons.
                 if size >= 32 and .12 < y < .21 and .29 < x < .71:
@@ -83,14 +85,18 @@ def render(size):
                              ((.55, .145), (.60, .185)),
                              ((.60, .185), (.68, .185))]
                     if any(segment_dist2(x, y, a, b) < .000035 for a, b in waves):
-                        color = (202, 157, 83)
+                        color = (178, 136, 74)
 
-            # The darker vermilion edge frames the cream-coloured fan leaves.
+            # The darker vermilion edge frames the fan leaves against the
+            # light washi ground.
             if in_poly(x, y, FAN_OUTER):
                 color = (124, 50, 47)
                 if in_poly(x, y, FAN_INNER):
                     t = max(0, min(1, (y - .25) / .55))
-                    color = tuple(int(lerp(v, v * .83, t)) for v in PARCHMENT)
+                    # Slightly deeper parchment than the washi ground so the
+                    # fan leaves still read as a separate object.
+                    leaf = (247, 220, 164)
+                    color = tuple(int(lerp(v, v * .86, t)) for v in leaf)
                     # Fine gilded slats converge at the fan's pivot.
                     rib_width = .000052 if size >= 32 else .000095
                     if any(segment_dist2(x, y, (.50, .83), tip) < rib_width
